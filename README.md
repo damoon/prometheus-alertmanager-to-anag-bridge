@@ -27,7 +27,7 @@ tilt up
 
 Install [Anbox](https://docs.anbox.io/userguide/install.html) to run Android apps locally.
 
-Download [Anag](https://apkpure.com/de/anag/info.degois.damien.android.aNag) and start it in Anbox.
+Download [Anag](https://apkpure.com/de/anag/info.degois.damien.android.aNag) and [add](https://docs.anbox.io/userguide/install_apps.html) it to Anbox.
 
 Configure Anag to the endpoint of patam.
 
