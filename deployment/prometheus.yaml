@@ -1,0 +1,101 @@
+kind: Service
+apiVersion: v1
+metadata:
+  name: prometheus
+spec:
+  selector:
+    app: prometheus
+  ports:
+  - name: promui
+    protocol: TCP
+    port: 9090
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: prometheus
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: prometheus
+  template:
+    metadata:
+      labels:
+        app: prometheus
+    spec:
+      containers:
+      - name: prometheus
+        image: prom/prometheus
+        volumeMounts:
+        - name: config
+          mountPath: /etc/prometheus
+        ports:
+        - containerPort: 9090
+      volumes:
+      - name: config
+        configMap:
+          name: prometheus
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: prometheus
+data:
+  rules.yml: |
+    groups:
+    - name: ./rules.conf
+      rules:
+      - alert: InstanceDownPending
+        expr: up == 0
+        for: 100y
+        labels:
+          severity: page
+        annotations:
+          summary: "Instance {{ $labels.instance }} down"
+          description: "{{ $labels.instance }} of job {{ $labels.job }} has been down for more than 100years."
+
+      - alert: InstanceDownImmediately
+        expr: up == 0
+        labels:
+          severity: page
+        annotations:
+          summary: "Instance {{ $labels.instance }} down"
+          description: "{{ $labels.instance }} of job {{ $labels.job }} is down."
+
+      - alert: ValidCheck
+        expr: true
+        for: 10m
+        annotations:
+          message: 'This is an alert to show an healthy service.'
+
+      - alert: Watchdog
+        annotations:
+          message: 'This is an alert meant to ensure that the entire alerting pipeline is functional.
+            This alert is always firing, therefore it should always be firing in Alertmanager
+            and always fire against a receiver. There are integrations with various notification
+            mechanisms that send a notification when this alert is not firing. For example the
+            "DeadMansSnitch" integration in PagerDuty.
+            '
+        expr: vector(1)
+        labels:
+          severity: none
+  prometheus.yml: |
+    global:
+      scrape_interval: 15s
+    scrape_configs:
+    - job_name: 'prometheus'
+      scrape_interval: 5s
+      static_configs:
+      - targets: ['localhost:9090']
+    - job_name: 'missing'
+      scrape_interval: 5s
+      static_configs:
+      - targets: ['localhost:1234']
+    rule_files:
+    - rules.yml
+    alerting:
+      alertmanagers:
+        - static_configs:
+          - targets:
+            - alertmanager:9093

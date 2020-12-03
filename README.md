@@ -16,18 +16,25 @@ Unsupported:
 
 ## Development
 
-Setup [Rust](https://rustup.rs/).
+Setup [Rust](https://rustup.rs/) with your editor of choice.
+
+Setup [Tilt](https://docs.tilt.dev/install.html).
+
+Run tilt to deploy patam and its dependencies.
+``` bash
+tilt up
+```
 
 Install [Anbox](https://docs.anbox.io/userguide/install.html) to run Android apps locally.
 
 Download [Anag](https://apkpure.com/de/anag/info.degois.damien.android.aNag) and start it in Anbox.
 
-TODO: document patab endpoint for anag
+Configure Anag to the endpoint of patam.
 
-TODO: implement alertmanager mock endpoint or start alertmanager + prometheus in docker
+__Endpoints__
 
-__tip__
+Papam: TODO: http://{host-ip}:8080/nagios/cgi-bin/
 
-Use [cargo-watch](https://github.com/passcod/cargo-watch) to run `cargo watch -x check -x test -x run`
+Prometheus: [http://localhost:9090/alerts](http://localhost:9090/alerts)
 
-Rustfmt is your friend :D
+Alertmanager: [http://localhost:9093/#/alerts](http://localhost:9093/#/alerts)
