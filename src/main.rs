@@ -2,24 +2,155 @@
 extern crate serde;
 extern crate env_logger;
 
-use actix_files as fs;
 use actix_web::{get, web, App, HttpServer, HttpResponse, Responder, web::Query, Result};
 use actix_web::middleware::Logger;
 
 #[derive(Deserialize)]
-pub struct AuthRequest {
+pub struct DetailsRequest {
    style: String,
+}
+
+#[derive(Serialize)]
+pub struct TacResponse<'a> {
+    pub cgi_json_version: &'a str,
+    pub icinga_status: IcingaStatus,
+    pub tac: Tac<'a>,
+}
+
+#[derive(Serialize)]
+pub struct Tac<'a> {
+    pub tac_overview: TacOverview<'a>,
+}
+
+#[derive(Serialize)]
+pub struct TacOverview<'a> {
+    pub total_services: &'a i32,
+    pub services_ok: &'a i32,
+    pub services_warning: &'a i32,
+}
+
+#[derive(Serialize)]
+pub struct ServicesResponse<'a> {
+    pub cgi_json_version: &'a str,
+    pub icinga_status: IcingaStatus,
+    pub status: Status<'a>,
+}
+
+#[derive(Serialize)]
+pub struct IcingaStatus {
+}
+
+#[derive(Serialize)]
+pub struct Status<'a> {
+    pub service_status: &'a [ServiceStatus<'a>],
+    //pub host_status: [HostStatus],
+}
+
+#[derive(Serialize)]
+pub struct ServiceStatus<'a> {
+    pub host_name: &'a str,
+    pub host_display_name: &'a str,
+    pub service_description: &'a str,
+    pub service_display_name: &'a str,
+    pub status: &'a str,
+    pub last_check: &'a str,
+    pub duration: &'a str,
+    pub attempts: &'a str,
+    pub current_notification_number: &'a i32,
+    pub state_type: &'a str,
+    pub is_flapping: bool,
+    pub in_scheduled_downtime: bool,
+    pub active_checks_enabled: bool,
+    pub passive_checks_enabled: bool,
+    pub notifications_enabled: bool,
+    pub has_been_acknowledged: bool,
+    pub action_url: &'a str,
+    pub notes_url: &'a str,
+    pub status_information: &'a str,
+}
+
+#[derive(Serialize)]
+pub struct HostStatus {
 }
 
 // /nagios/cgi-bin/status.cgi?style=servicedetail&embedded&limit=0&serviceprops=262144&servicestatustypes=61&jsonoutput
 #[get("/nagios/cgi-bin/status.cgi")]
-async fn servicedetail(info: web::Query<AuthRequest>) -> &'static str  {
-    "{\"cgi_json_version\":\"\",\"status\":{\"service_status\":[{\"host_name\":\"cluster\",\"host_display_name\":\"cluster\",\"service_description\":\"KubernetesPods\",\"service_display_name\":\"KubernetesPods\",\"status\":\"WARNING\",\"last_check\":\"2020-12-0217:56:56\",\"duration\":\"4d7h38m52s\",\"attempts\":\"4/4\",\"current_notification_number\":1,\"state_type\":\"HARD\",\"is_flapping\":false,\"in_scheduled_downtime\":false,\"active_checks_enabled\":true,\"passive_checks_enabled\":true,\"notifications_enabled\":true,\"has_been_acknowledged\":false,\"action_url\":null,\"notes_url\":null,\"status_information\":\"[WARN]2podsareinaincompletestate\"}]}}"
+async fn servicedetail(info: web::Query<DetailsRequest>) -> Result<HttpResponse> {
+    let services = &[
+        ServiceStatus{
+            host_name: "cluster",
+            host_display_name: "cluster",
+            service_description: "Kubernetes Pods",
+            service_display_name: "Kubernetes Pods",
+            status: "WARNING",
+            last_check: "2020-12-02 17:56:56",
+            duration: "4d  7h 38m 52s",
+            attempts: "4/4",
+            current_notification_number: &1,
+            state_type: "HARD",
+            is_flapping: false,
+            in_scheduled_downtime: false,
+            active_checks_enabled: true,
+            passive_checks_enabled: true,
+            notifications_enabled: true,
+            has_been_acknowledged: false,
+            action_url: "",
+            notes_url: "",
+            status_information: "[WARN] 2 pods are in a incomplete state"
+        }
+    ];
+    let hosts = &[HostStatus{}];
+
+    let response = ServicesResponse{
+        cgi_json_version: "a",
+        icinga_status: IcingaStatus{},
+        status: Status{
+            service_status: services,
+        },
+    };
+
+    Ok(HttpResponse::Ok().json(response))
 }
 
 #[get("/nagios/cgi-bin/tac.cgi")]
-async fn tac() -> &'static str  {
-    "{\"cgi_json_version\":\"1.11.0\",\"icinga_status\":{\"status_data_age\":7,\"status_update_interval\":10,\"reading_status_data_ok\":true,\"program_version\":\"1.13.4\",\"icinga_pid\":20,\"timezone\":\"UTC\",\"date_format\":\"iso8601\",\"program_start\":1606558591,\"total_running_time\":\"4d7h41m27s\",\"last_external_command_check\":1606931870,\"last_log_file_rotation\":1606867200,\"notifications_enabled\":true,\"disable_notifications_expire_time\":0,\"service_checks_being_executed\":true,\"passive_service_checks_being_accepted\":true,\"host_checks_being_executed\":true,\"passive_host_checks_being_accepted\":true,\"obsessing_over_services\":false,\"obsessing_over_hosts\":false,\"check_service_freshness\":true,\"check_host_freshness\":false,\"event_handlers_enabled\":true,\"flap_detection_enabled\":true,\"performance_data_being_processed\":false},\"tac\":{\"tac_overview\":{\"network_outages\":0,\"percent_host_health\":100.0,\"percent_service_health\":98.5,\"total_hosts\":13,\"total_services\":134,\"hosts_pending\":0,\"hosts_pending_active\":0,\"hosts_pending_passive\":0,\"hosts_pending_disabled\":0,\"hosts_up\":13,\"hosts_up_active\":13,\"hosts_up_passive\":0,\"hosts_up_disabled\":0,\"hosts_down\":0,\"hosts_down_active\":0,\"hosts_down_passive\":0,\"hosts_down_disabled\":0,\"hosts_down_scheduled\":0,\"hosts_down_active_scheduled\":0,\"hosts_down_passive_scheduled\":0,\"hosts_down_disabled_scheduled\":0,\"hosts_down_acknowledged\":0,\"hosts_down_active_acknowledged\":0,\"hosts_down_passive_acknowledged\":0,\"hosts_down_disabled_acknowledged\":0,\"hosts_down_unacknowledged\":0,\"hosts_down_active_unacknowledged\":0,\"hosts_down_passive_unacknowledged\":0,\"hosts_down_disabled_unacknowledged\":0,\"hosts_unreachable\":0,\"hosts_unreachable_active\":0,\"hosts_unreachable_passive\":0,\"hosts_unreachable_disabled\":0,\"hosts_unreachable_scheduled\":0,\"hosts_unreachable_active_scheduled\":0,\"hosts_unreachable_passive_scheduled\":0,\"hosts_unreachable_disabled_scheduled\":0,\"hosts_unreachable_acknowledged\":0,\"hosts_unreachable_active_acknowledged\":0,\"hosts_unreachable_passive_acknowledged\":0,\"hosts_unreachable_disabled_acknowledged\":0,\"hosts_unreachable_unacknowledged\":0,\"hosts_unreachable_active_unacknowledged\":0,\"hosts_unreachable_passive_unacknowledged\":0,\"hosts_unreachable_disabled_unacknowledged\":0,\"services_pending\":0,\"services_pending_host_down\":0,\"services_pending_active\":0,\"services_pending_active_host_down\":0,\"services_pending_passive\":0,\"services_pending_passive_host_down\":0,\"services_pending_disabled\":0,\"services_pending_disabled_host_down\":0,\"services_ok\":130,\"services_ok_host_down\":0,\"services_ok_active\":130,\"services_ok_active_host_down\":0,\"services_ok_passive\":0,\"services_ok_passive_host_down\":0,\"services_ok_disabled\":0,\"services_ok_disabled_host_down\":0,\"services_warning\":4,\"services_warning_host_down\":0,\"services_warning_active\":4,\"services_warning_active_host_down\":0,\"services_warning_passive\":0,\"services_warning_passive_host_down\":0,\"services_warning_disabled\":0,\"services_warning_disabled_host_down\":0,\"services_warning_scheduled\":0,\"services_warning_scheduled_host_down\":0,\"services_warning_active_scheduled\":0,\"services_warning_active_scheduled_host_down\":0,\"services_warning_passive_scheduled\":0,\"services_warning_passive_scheduled_host_down\":0,\"services_warning_disabled_scheduled\":0,\"services_warning_disabled_scheduled_host_down\":0,\"services_warning_acknowledged\":0,\"services_warning_acknowledged_host_down\":0,\"services_warning_active_acknowledged\":0,\"services_warning_active_acknowledged_host_down\":0,\"services_warning_passive_acknowledged\":0,\"services_warning_passive_acknowledged_host_down\":0,\"services_warning_disabled_acknowledged\":0,\"services_warning_disabled_acknowledged_host_down\":0,\"services_warning_unacknowledged\":4,\"services_warning_unacknowledged_host_down\":0,\"services_warning_active_unacknowledged\":4,\"services_warning_active_unacknowledged_host_down\":0,\"services_warning_passive_unacknowledged\":0,\"services_warning_passive_unacknowledged_host_down\":0,\"services_warning_disabled_unacknowledged\":0,\"services_warning_disabled_unacknowledged_host_down\":0,\"services_critical\":0,\"services_critical_host_down\":0,\"services_critical_active\":0,\"services_critical_active_host_down\":0,\"services_critical_passive\":0,\"services_critical_passive_host_down\":0,\"services_critical_disabled\":0,\"services_critical_disabled_host_down\":0,\"services_critical_scheduled\":0,\"services_critical_scheduled_host_down\":0,\"services_critical_active_scheduled\":0,\"services_critical_active_scheduled_host_down\":0,\"services_critical_passive_scheduled\":0,\"services_critical_passive_scheduled_host_down\":0,\"services_critical_disabled_scheduled\":0,\"services_critical_disabled_scheduled_host_down\":0,\"services_critical_acknowledged\":0,\"services_critical_acknowledged_host_down\":0,\"services_critical_active_acknowledged\":0,\"services_critical_active_acknowledged_host_down\":0,\"services_critical_passive_acknowledged\":0,\"services_critical_passive_acknowledged_host_down\":0,\"services_critical_disabled_acknowledged\":0,\"services_critical_disabled_acknowledged_host_down\":0,\"services_critical_unacknowledged\":0,\"services_critical_unacknowledged_host_down\":0,\"services_critical_active_unacknowledged\":0,\"services_critical_active_unacknowledged_host_down\":0,\"services_critical_passive_unacknowledged\":0,\"services_critical_passive_unacknowledged_host_down\":0,\"services_critical_disabled_unacknowledged\":0,\"services_critical_disabled_unacknowledged_host_down\":0,\"services_unknown\":0,\"services_unknown_host_down\":0,\"services_unknown_active\":0,\"services_unknown_active_host_down\":0,\"services_unknown_passive\":0,\"services_unknown_passive_host_down\":0,\"services_unknown_disabled\":0,\"services_unknown_disabled_host_down\":0,\"services_unknown_scheduled\":0,\"services_unknown_scheduled_host_down\":0,\"services_unknown_active_scheduled\":0,\"services_unknown_active_scheduled_host_down\":0,\"services_unknown_passive_scheduled\":0,\"services_unknown_passive_scheduled_host_down\":0,\"services_unknown_disabled_scheduled\":0,\"services_unknown_disabled_scheduled_host_down\":0,\"services_unknown_acknowledged\":0,\"services_unknown_acknowledged_host_down\":0,\"services_unknown_active_acknowledged\":0,\"services_unknown_active_acknowledged_host_down\":0,\"services_unknown_passive_acknowledged\":0,\"services_unknown_passive_acknowledged_host_down\":0,\"services_unknown_disabled_acknowledged\":0,\"services_unknown_disabled_acknowledged_host_down\":0,\"services_unknown_unacknowledged\":0,\"services_unknown_unacknowledged_host_down\":0,\"services_unknown_active_unacknowledged\":0,\"services_unknown_active_unacknowledged_host_down\":0,\"services_unknown_passive_unacknowledged\":0,\"services_unknown_passive_unacknowledged_host_down\":0,\"services_unknown_disabled_unacknowledged\":0,\"services_unknown_disabled_unacknowledged_host_down\":0,\"flap_detection_enabled\":true,\"flap_disabled_services\":0,\"flapping_services\":0,\"flap_disabled_hosts\":0,\"flapping_hosts\":0,\"notifications_enabled\":true,\"notification_disabled_services\":0,\"notification_disabled_hosts\":0,\"event_handlers_enabled\":true,\"event_handler_disabled_services\":0,\"event_handler_disabled_hosts\":0,\"execute_service_checks\":true,\"execute_host_checks\":true,\"accept_passive_service_checks\":true,\"accept_passive_host_checks\":true,\"min_service_check_execution_time\":0.01,\"max_service_check_execution_time\":2.10,\"average_service_check_execution_time\":0.363,\"min_service_check_latency\":0.01,\"max_service_check_latency\":0.26,\"average_service_check_latency\":0.131,\"min_host_check_execution_time\":0.00,\"max_host_check_execution_time\":0.02,\"average_host_check_execution_time\":0.011,\"min_host_check_latency\":0.03,\"max_host_check_latency\":0.24,\"average_host_check_latency\":0.122,\"total_active_host_checks\":13,\"total_passive_host_checks\":0,\"total_disabled_host_checks\":0,\"total_active_host_checks_with_passive_disabled\":0,\"total_active_service_checks\":134,\"total_passive_service_checks\":0,\"total_disabled_service_checks\":0,\"total_active_service_checks_with_passive_disabled\":0}}}"
+async fn tac() -> Result<HttpResponse> {
+    let services = &[
+        ServiceStatus{
+            host_name: "cluster",
+            host_display_name: "cluster",
+            service_description: "Kubernetes Pods",
+            service_display_name: "Kubernetes Pods",
+            status: "WARNING",
+            last_check: "2020-12-02 17:56:56",
+            duration: "4d  7h 38m 52s",
+            attempts: "4/4",
+            current_notification_number: &1,
+            state_type: "HARD",
+            is_flapping: false,
+            in_scheduled_downtime: false,
+            active_checks_enabled: true,
+            passive_checks_enabled: true,
+            notifications_enabled: true,
+            has_been_acknowledged: false,
+            action_url: "",
+            notes_url: "",
+            status_information: "[WARN] 2 pods are in a incomplete state"
+        }
+    ];
+
+    let response = TacResponse{
+        cgi_json_version: "a",
+        icinga_status: IcingaStatus{},
+        tac: Tac{
+            tac_overview: TacOverview {
+                total_services: &6,
+                services_ok: &4,
+                services_warning: &2,
+            }
+        },
+    };
+
+    Ok(HttpResponse::Ok().json(response))
 }
 
 
