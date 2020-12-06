@@ -59,6 +59,14 @@ data:
           description: "{{ $labels.instance }} of job {{ $labels.job }} is down."
         expr: up == 0
 
+      - alert: InstanceDownSeverityRandom
+        annotations:
+          summary: "Instance {{ $labels.instance }} down"
+          description: "{{ $labels.instance }} of job {{ $labels.job }} is down."
+        expr: up == 0
+        labels:
+          severity: randomValue123
+
       - alert: InstanceDownSeverityNone
         annotations:
           summary: "Instance {{ $labels.instance }} down"

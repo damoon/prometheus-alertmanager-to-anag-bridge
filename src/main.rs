@@ -102,12 +102,11 @@ impl alertmanager::Alert {
     fn select_severity<'a>(&'a self) -> String {
         if self.labels.severity.is_some() {
             return match self.labels.severity.clone().unwrap().as_str() {
-                "critical" => "CRITICAL".to_string(),
-                "warning" => "WARNING".to_string(),
-                "info" => "PENDING".to_string(),
-                "none" => "UNKNOWN".to_string(),
-                _ => "UNKNOWN".to_string(),
-            };
+                "critical" => "CRITICAL",
+                "warning" => "WARNING",
+                "info" | "none" => "PENDING",
+                _ => "UNKNOWN",
+            }.to_string();
         }
 
         "UNKNOWN".to_string()
