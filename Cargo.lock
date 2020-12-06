@@ -1118,7 +1118,9 @@ dependencies = [
  "actix-files",
  "actix-web",
  "env_logger",
+ "http",
  "serde",
+ "thiserror",
 ]
 
 [[package]]

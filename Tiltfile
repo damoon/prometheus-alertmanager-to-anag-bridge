@@ -19,7 +19,6 @@ k8s_resource(
   links=['http://127.0.0.1:8080'],
 )
 
-
 target='prod'
 live_update=[]
 if os.environ.get('PROD', '') ==  '':

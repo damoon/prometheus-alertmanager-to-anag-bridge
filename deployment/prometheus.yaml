@@ -44,24 +44,52 @@ metadata:
 data:
   rules.yml: |
     groups:
-    - name: ./rules.conf
+    - name: test rules
       rules:
       - alert: InstanceDownPending
-        expr: up == 0
-        for: 100y
-        labels:
-          severity: page
         annotations:
           summary: "Instance {{ $labels.instance }} down"
           description: "{{ $labels.instance }} of job {{ $labels.job }} has been down for more than 100years."
-
-      - alert: InstanceDownImmediately
+        for: 100y
         expr: up == 0
-        labels:
-          severity: page
+
+      - alert: InstanceDownSeverityMissing
         annotations:
           summary: "Instance {{ $labels.instance }} down"
           description: "{{ $labels.instance }} of job {{ $labels.job }} is down."
+        expr: up == 0
+
+      - alert: InstanceDownSeverityNone
+        annotations:
+          summary: "Instance {{ $labels.instance }} down"
+          description: "{{ $labels.instance }} of job {{ $labels.job }} is down."
+        expr: up == 0
+        labels:
+          severity: none
+
+      - alert: InstanceDownSeverityInfo
+        annotations:
+          summary: "Instance {{ $labels.instance }} down"
+          description: "{{ $labels.instance }} of job {{ $labels.job }} is down."
+        expr: up == 0
+        labels:
+          severity: info
+
+      - alert: InstanceDownSeverityWarn
+        annotations:
+          summary: "Instance {{ $labels.instance }} down"
+          description: "{{ $labels.instance }} of job {{ $labels.job }} is down."
+        expr: up == 0
+        labels:
+          severity: warning
+
+      - alert: InstanceDownSeverityCrit
+        annotations:
+          summary: "Instance {{ $labels.instance }} down"
+          description: "{{ $labels.instance }} of job {{ $labels.job }} is down."
+        expr: up == 0
+        labels:
+          severity: critical
 
       - alert: ValidCheck
         expr: true

@@ -1,3 +1,11 @@
+_alertmanager API_
+
+https://github.com/prometheus/alertmanager/blob/master/api/v2/openapi.yaml
+
+`curl -H "Content-Type: application/json" 127.0.0.1:9093/api/v2/alerts | jq .`
+
+_nagios output_
+
 http://alerting/cgi-bin/icinga/status.cgi
     ?style=servicedetail
     &embedded
