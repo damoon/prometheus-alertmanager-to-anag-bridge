@@ -78,6 +78,7 @@ async fn main() -> std::io::Result<()> {
             .wrap(Logger::default())
             .service(servicedetail)
             .service(tac)
+            .service(healthz)
     })
     .bind("0.0.0.0:8080")?
     .run()
@@ -201,6 +202,11 @@ async fn tac() -> Result<HttpResponse> {
     Ok(HttpResponse::Ok()
         .content_type("application/json")
         .body("{}"))
+}
+
+#[get("/healthz")]
+async fn healthz() -> Result<HttpResponse> {
+    Ok(HttpResponse::Ok().body(""))
 }
 
 mod alertmanager {
