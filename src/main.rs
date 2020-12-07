@@ -3,7 +3,7 @@ extern crate serde;
 extern crate env_logger;
 
 use actix_web::middleware::Logger;
-use actix_web::{get, web, web::Query, App, HttpResponse, HttpServer, Responder, Result};
+use actix_web::{get, web, App, HttpResponse, HttpServer, Result};
 
 #[derive(Deserialize)]
 pub struct DetailsRequest {
@@ -45,13 +45,13 @@ pub struct Status<'a> {
 pub struct ServiceStatus<'a> {
     pub host_name: &'a str,
     pub host_display_name: &'a str,
-    pub service_description: String,
+    pub service_description: &'a str,
     pub service_display_name: String,
     pub status: String,
     pub last_check: &'a str,
     pub duration: &'a str,
     pub attempts: &'a str,
-    pub current_notification_number: &'a i32,
+    pub current_notification_number: i32,
     pub state_type: &'a str,
     pub is_flapping: bool,
     pub in_scheduled_downtime: bool,
@@ -122,59 +122,66 @@ impl alertmanager::Alert {
     }
 }
 
+fn new_service_status<'a>(name: String, severity: String, details: String) -> ServiceStatus<'a> {
+    ServiceStatus {
+        host_name: "unknown",
+        host_display_name: "",
+        service_description: "",
+        service_display_name: name,
+        status: severity,
+        last_check: "",
+        duration: "",
+        attempts: "",
+        current_notification_number: 0,
+        state_type: "HARD",
+        is_flapping: false,
+        in_scheduled_downtime: false,
+        active_checks_enabled: true,
+        passive_checks_enabled: true,
+        notifications_enabled: true,
+        has_been_acknowledged: false,
+        action_url: "",
+        notes_url: "",
+        status_information: details,
+    }
+}
+
+fn indicate_watchdog_missing(alerts: &Vec<alertmanager::Alert>, services: &mut Vec<ServiceStatus>) {
+    let missing = alerts.into_iter().all(|a| a.select_name() != "Watchdog");
+    if missing {
+        services.push(new_service_status(
+            "Watchdog missing".to_string(),
+            "CRITICAL".to_string(),
+            "Watchdog alert is missing".to_string(),
+        ));
+    }
+}
+
 // /nagios/cgi-bin/status.cgi?style=servicedetail&embedded&limit=0&serviceprops=262144&servicestatustypes=61&jsonoutput
 #[get("/nagios/cgi-bin/status.cgi")]
 async fn servicedetail(info: web::Query<DetailsRequest>) -> Result<HttpResponse> {
-    if info.style != "servicedetail" {
-        let response = ServicesResponse {
-            cgi_json_version: "a",
-            icinga_status: IcingaStatus {},
-            status: Status {
-                service_status: Vec::<ServiceStatus>::new(),
-            },
-        };
+    let mut services = Vec::<ServiceStatus>::new();
 
-        return Ok(HttpResponse::Ok().json(response));
+    if info.style == "servicedetail" {
+        let alerts = alertmanager::alerts().await?;
+
+        services = alerts
+            .iter()
+            .filter(|a| {
+                let name = a.select_name();
+                name != "Watchdog"
+            })
+            .map(|a| {
+                let name = a.select_name();
+                let severity = a.select_severity();
+                let msg = a.select_message();
+
+                new_service_status(name, severity, msg)
+            })
+            .collect();
+
+        indicate_watchdog_missing(&alerts, &mut services);
     }
-
-    let alerts = alertmanager::alerts().await?;
-
-    let services = alerts
-        .into_iter()
-        .filter(|a| {
-            let name = a.select_name();
-            name != "Watchdog"
-        })
-        .map(|a| {
-            let msg = a.select_message();
-            let name = a.select_name();
-            let severity = a.select_severity();
-
-            ServiceStatus {
-                host_name: "cluster",
-                host_display_name: "cluster",
-                service_description: msg.clone(),
-                service_display_name: name,
-                //            service_description: &"testing",
-                //            service_display_name: &"testing",
-                status: severity,
-                last_check: "",
-                duration: "",
-                attempts: "",
-                current_notification_number: &1,
-                state_type: "HARD",
-                is_flapping: false,
-                in_scheduled_downtime: false,
-                active_checks_enabled: true,
-                passive_checks_enabled: true,
-                notifications_enabled: true,
-                has_been_acknowledged: false,
-                action_url: "",
-                notes_url: "",
-                status_information: msg.clone(),
-            }
-        })
-        .collect();
 
     let response = ServicesResponse {
         cgi_json_version: "a",
@@ -199,6 +206,7 @@ async fn tac() -> Result<HttpResponse> {
 mod alertmanager {
     use actix_web::client::{Client, JsonPayloadError, SendRequestError};
     use http::StatusCode;
+    use std::time::Duration;
     use thiserror::Error;
 
     #[derive(Error, Debug)]
@@ -214,7 +222,8 @@ mod alertmanager {
     #[derive(Deserialize, Debug)]
     pub struct Alert {
         pub annotations: Annotations,
-        pub generatorURL: String,
+        #[serde(rename = "generatorURL")]
+        pub generator_url: String,
         pub fingerprint: String,
         pub labels: Labels,
     }
@@ -236,6 +245,7 @@ mod alertmanager {
         let mut response = Client::default()
             .get("http://alertmanager:9093/api/v2/alerts")
             .header("Content-Type", "application/json")
+            .timeout(Duration::from_secs(5))
             .send()
             .await?;
 
