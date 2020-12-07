@@ -106,7 +106,8 @@ impl alertmanager::Alert {
                 "warning" => "WARNING",
                 "info" | "none" => "PENDING",
                 _ => "UNKNOWN",
-            }.to_string();
+            }
+            .to_string();
         }
 
         "UNKNOWN".to_string()
@@ -124,10 +125,26 @@ impl alertmanager::Alert {
 // /nagios/cgi-bin/status.cgi?style=servicedetail&embedded&limit=0&serviceprops=262144&servicestatustypes=61&jsonoutput
 #[get("/nagios/cgi-bin/status.cgi")]
 async fn servicedetail(info: web::Query<DetailsRequest>) -> Result<HttpResponse> {
+    if info.style != "servicedetail" {
+        let response = ServicesResponse {
+            cgi_json_version: "a",
+            icinga_status: IcingaStatus {},
+            status: Status {
+                service_status: Vec::<ServiceStatus>::new(),
+            },
+        };
+
+        return Ok(HttpResponse::Ok().json(response));
+    }
+
     let alerts = alertmanager::alerts().await?;
 
     let services = alerts
         .into_iter()
+        .filter(|a| {
+            let name = a.select_name();
+            name != "Watchdog"
+        })
         .map(|a| {
             let msg = a.select_message();
             let name = a.select_name();

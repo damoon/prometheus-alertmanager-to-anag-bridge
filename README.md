@@ -33,7 +33,7 @@ Configure Anag to the endpoint of patam.
 
 __Endpoints__
 
-Papam: TODO: http://{host-ip}:8080/nagios/cgi-bin/
+Papam: http://{host-ip}:8080/nagios/cgi-bin/
 
 Prometheus: [http://localhost:9090/alerts](http://localhost:9090/alerts)
 
