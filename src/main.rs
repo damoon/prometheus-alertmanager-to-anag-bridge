@@ -3,7 +3,7 @@ extern crate serde;
 extern crate env_logger;
 
 use actix_web::middleware::Logger;
-use actix_web::{get, web, App, HttpResponse, HttpServer, Result};
+use actix_web::{get, post, web, App, HttpResponse, HttpServer, Result};
 
 #[derive(Deserialize)]
 pub struct DetailsRequest {
@@ -45,7 +45,7 @@ pub struct Status<'a> {
 pub struct ServiceStatus<'a> {
     pub host_name: &'a str,
     pub host_display_name: &'a str,
-    pub service_description: &'a str,
+    pub service_description: String,
     pub service_display_name: String,
     pub status: String,
     pub last_check: &'a str,
@@ -77,6 +77,7 @@ async fn main() -> std::io::Result<()> {
         App::new()
             .wrap(Logger::default())
             .service(servicedetail)
+            .service(cmd)
             .service(tac)
             .service(healthz)
     })
@@ -121,13 +122,22 @@ impl alertmanager::Alert {
 
         self.fingerprint.clone()
     }
+
+    fn select_acknowledged<'a>(&'a self) -> bool {
+        self.status.state == "suppressed"
+    }
 }
 
-fn new_service_status<'a>(name: String, severity: String, details: String) -> ServiceStatus<'a> {
+fn new_service_status<'a>(
+    name: String,
+    severity: String,
+    details: String,
+    acknowledged: bool,
+) -> ServiceStatus<'a> {
     ServiceStatus {
         host_name: "unknown",
         host_display_name: "",
-        service_description: "",
+        service_description: name.clone(),
         service_display_name: name,
         status: severity,
         last_check: "",
@@ -140,7 +150,7 @@ fn new_service_status<'a>(name: String, severity: String, details: String) -> Se
         active_checks_enabled: true,
         passive_checks_enabled: true,
         notifications_enabled: true,
-        has_been_acknowledged: false,
+        has_been_acknowledged: acknowledged,
         action_url: "",
         notes_url: "",
         status_information: details,
@@ -154,6 +164,7 @@ fn indicate_watchdog_missing(alerts: &Vec<alertmanager::Alert>, services: &mut V
             "Watchdog missing".to_string(),
             "CRITICAL".to_string(),
             "Watchdog alert is missing".to_string(),
+            false,
         ));
     }
 }
@@ -176,8 +187,9 @@ async fn servicedetail(info: web::Query<DetailsRequest>) -> Result<HttpResponse>
                 let name = a.select_name();
                 let severity = a.select_severity();
                 let msg = a.select_message();
+                let ack = a.select_acknowledged();
 
-                new_service_status(name, severity, msg)
+                new_service_status(name, severity, msg, ack)
             })
             .collect();
 
@@ -193,6 +205,30 @@ async fn servicedetail(info: web::Query<DetailsRequest>) -> Result<HttpResponse>
     };
 
     Ok(HttpResponse::Ok().json(response))
+}
+
+#[derive(Deserialize, Debug)]
+struct AckCmd {
+    cmd_typ: i32,
+    service: String,
+    com_data: Option<String>,
+}
+
+#[post("/nagios/cgi-bin/cmd.cgi")]
+async fn cmd(form: web::Form<AckCmd>) -> Result<HttpResponse> {
+    if form.cmd_typ == 34 {
+        let service = form.service.clone();
+        let comment = form.com_data.clone().expect("comment missing");
+        alertmanager::ack(service, comment).await?;
+    }
+
+    if form.cmd_typ == 52 {
+        let service = form.service.clone();
+        alertmanager::remove_ack(service).await?;
+    }
+
+    Ok(HttpResponse::Ok()
+        .body("Your command requests were successfully submitted to Icinga for processing."))
 }
 
 impl actix_web::ResponseError for alertmanager::Error {}
@@ -211,8 +247,9 @@ async fn healthz() -> Result<HttpResponse> {
 
 mod alertmanager {
     use actix_web::client::{Client, JsonPayloadError, SendRequestError};
+    use chrono::{DateTime, Duration, Utc};
     use http::StatusCode;
-    use std::time::Duration;
+    use std::ops::Add;
     use thiserror::Error;
 
     #[derive(Error, Debug)]
@@ -231,6 +268,7 @@ mod alertmanager {
         #[serde(rename = "generatorURL")]
         pub generator_url: String,
         pub fingerprint: String,
+        pub status: Status,
         pub labels: Labels,
     }
 
@@ -239,6 +277,11 @@ mod alertmanager {
         pub description: Option<String>,
         pub summary: Option<String>,
         pub message: Option<String>,
+    }
+
+    #[derive(Deserialize, Debug)]
+    pub struct Status {
+        pub state: String,
     }
 
     #[derive(Deserialize, Debug)]
@@ -251,7 +294,6 @@ mod alertmanager {
         let mut response = Client::default()
             .get("http://alertmanager:9093/api/v2/alerts")
             .header("Content-Type", "application/json")
-            .timeout(Duration::from_secs(5))
             .send()
             .await?;
 
@@ -261,8 +303,79 @@ mod alertmanager {
 
         let alerts: Vec<Alert> = response.json().await?;
 
-        print!("alerts: {:?}", alerts);
-
         Ok(alerts)
+    }
+
+    #[derive(Serialize)]
+    pub struct Acknowledge<'a> {
+        pub matchers: Vec<Matcher<'a>>,
+        #[serde(rename = "createdBy")]
+        pub created_by: &'a str,
+        pub comment: String,
+        //pub id: String,
+        #[serde(rename = "endsAt")]
+        pub ends_at: String,
+        #[serde(rename = "startsAt")]
+        pub starts_at: String,
+    }
+    #[derive(Serialize)]
+    pub struct Matcher<'a> {
+        pub name: &'a str,
+        pub value: String,
+        #[serde(rename = "isRegex")]
+        pub is_regex: bool,
+    }
+
+    pub async fn ack(name: String, comment: String) -> Result<(), Error> {
+        let mut matchers = Vec::<Matcher>::new();
+        matchers.push(Matcher {
+            name: "alertname",
+            value: name,
+            is_regex: false,
+        });
+
+        let starts_at: DateTime<Utc> = Utc::now();
+        let ends_at = starts_at.add(Duration::days(1));
+
+        let ack = Acknowledge {
+            matchers,
+            created_by: "anag-bridge",
+            comment: comment,
+            ends_at: ends_at.to_rfc3339(),
+            starts_at: starts_at.to_rfc3339(),
+        };
+
+        let response = Client::default()
+            .post("http://alertmanager:9093/api/v2/silences")
+            .header("Content-Type", "application/json")
+            .send_json(&ack)
+            .await?;
+
+        if !response.status().is_success() {
+            return Err(Error::BadStatus(response.status()));
+        }
+
+        Ok(())
+    }
+
+    pub async fn remove_ack(name: String) -> Result<(), Error> {
+        let mut matchers = Vec::<Matcher>::new();
+        matchers.push(Matcher {
+            name: "alertname",
+            value: name,
+            is_regex: false,
+        });
+
+        let response = Client::default()
+            .get("http://alertmanager:9093/api/v2/silences")
+            .header("Content-Type", "application/json")
+            .send()
+            .await?;
+
+        if !response.status().is_success() {
+            return Err(Error::BadStatus(response.status()));
+        }
+
+        Ok(())
     }
 }
