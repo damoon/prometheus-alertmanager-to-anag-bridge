@@ -216,19 +216,28 @@ struct AckCmd {
 
 #[post("/nagios/cgi-bin/cmd.cgi")]
 async fn cmd(form: web::Form<AckCmd>) -> Result<HttpResponse> {
-    if form.cmd_typ == 34 {
-        let service = form.service.clone();
-        let comment = form.com_data.clone().expect("comment missing");
-        alertmanager::ack(service, comment).await?;
-    }
+    match form.cmd_typ {
+        34 => {
+            let service = form.service.clone();
+            let comment = form.com_data.clone().expect("comment missing");
+            alertmanager::ack(service, comment).await?;
 
-    if form.cmd_typ == 52 {
-        let service = form.service.clone();
-        alertmanager::remove_ack(service).await?;
-    }
+            Ok(HttpResponse::Ok().body(
+                "Your command requests were successfully submitted to Icinga for processing.",
+            ))
+        }
 
-    Ok(HttpResponse::Ok()
-        .body("Your command requests were successfully submitted to Icinga for processing."))
+        52 => {
+            let service = form.service.clone();
+            alertmanager::remove_ack(service).await?;
+
+            Ok(HttpResponse::Ok().body(
+                "Your command requests were successfully submitted to Icinga for processing.",
+            ))
+        }
+
+        _ => Ok(HttpResponse::NotAcceptable().body("Command type not implemented.")),
+    }
 }
 
 impl actix_web::ResponseError for alertmanager::Error {}
@@ -260,6 +269,8 @@ mod alertmanager {
         RequestError(#[from] SendRequestError),
         #[error("{0}")]
         JsonPayloadError(#[from] JsonPayloadError),
+        #[error("{0}")]
+        QueryEncode(#[from] serde_urlencoded::ser::Error),
     }
 
     #[derive(Deserialize, Debug)]
@@ -308,19 +319,19 @@ mod alertmanager {
 
     #[derive(Serialize)]
     pub struct Acknowledge<'a> {
-        pub matchers: Vec<Matcher<'a>>,
+        pub matchers: Vec<Matcher>,
         #[serde(rename = "createdBy")]
         pub created_by: &'a str,
         pub comment: String,
-        //pub id: String,
         #[serde(rename = "endsAt")]
         pub ends_at: String,
         #[serde(rename = "startsAt")]
         pub starts_at: String,
     }
+
     #[derive(Serialize)]
-    pub struct Matcher<'a> {
-        pub name: &'a str,
+    pub struct Matcher {
+        pub name: String,
         pub value: String,
         #[serde(rename = "isRegex")]
         pub is_regex: bool,
@@ -329,7 +340,7 @@ mod alertmanager {
     pub async fn ack(name: String, comment: String) -> Result<(), Error> {
         let mut matchers = Vec::<Matcher>::new();
         matchers.push(Matcher {
-            name: "alertname",
+            name: "alertname".to_string(),
             value: name,
             is_regex: false,
         });
@@ -358,22 +369,44 @@ mod alertmanager {
         Ok(())
     }
 
-    pub async fn remove_ack(name: String) -> Result<(), Error> {
-        let mut matchers = Vec::<Matcher>::new();
-        matchers.push(Matcher {
-            name: "alertname",
-            value: name,
-            is_regex: false,
-        });
+    #[derive(Serialize)]
+    pub struct Filter {
+        pub filter: [Matcher; 1],
+    }
 
-        let response = Client::default()
+    #[derive(Deserialize)]
+    pub struct Silence {
+        pub id: String,
+    }
+
+    pub async fn remove_ack(name: String) -> Result<(), Error> {
+        let query = [("filter", format!("alertname={}", name))];
+
+        let mut response = Client::default()
             .get("http://alertmanager:9093/api/v2/silences")
             .header("Content-Type", "application/json")
+            .query(&query)?
             .send()
             .await?;
 
         if !response.status().is_success() {
             return Err(Error::BadStatus(response.status()));
+        }
+
+        let silences: Vec<Silence> = response.json().await?;
+
+        for silence in silences {
+            let response = Client::default()
+                .delete(format!(
+                    "http://alertmanager:9093/api/v2/silence/{}",
+                    silence.id
+                ))
+                .send()
+                .await?;
+
+            if !response.status().is_success() {
+                return Err(Error::BadStatus(response.status()));
+            }
         }
 
         Ok(())
