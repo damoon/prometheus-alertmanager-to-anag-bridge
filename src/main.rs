@@ -261,6 +261,16 @@ mod alertmanager {
     use std::ops::Add;
     use thiserror::Error;
 
+    fn new_http_client() -> Client {
+        let connector = actix_web::client::Connector::new()
+            .timeout(std::time::Duration::from_secs(10))
+            .finish();
+        actix_web::client::ClientBuilder::new()
+            .connector(connector)
+            .timeout(std::time::Duration::from_secs(10))
+            .finish()
+    }
+
     #[derive(Error, Debug)]
     pub enum Error {
         #[error("alertmanager responded with status code {0}.")]
@@ -302,7 +312,7 @@ mod alertmanager {
     }
 
     pub async fn alerts() -> Result<Vec<Alert>, Error> {
-        let mut response = Client::default()
+        let mut response = new_http_client()
             .get("http://alertmanager:9093/api/v2/alerts")
             .header("Content-Type", "application/json")
             .send()
@@ -356,7 +366,7 @@ mod alertmanager {
             starts_at: starts_at.to_rfc3339(),
         };
 
-        let response = Client::default()
+        let response = new_http_client()
             .post("http://alertmanager:9093/api/v2/silences")
             .header("Content-Type", "application/json")
             .send_json(&ack)
@@ -382,7 +392,7 @@ mod alertmanager {
     pub async fn remove_ack(name: String) -> Result<(), Error> {
         let query = [("filter", format!("alertname={}", name))];
 
-        let mut response = Client::default()
+        let mut response = new_http_client()
             .get("http://alertmanager:9093/api/v2/silences")
             .header("Content-Type", "application/json")
             .query(&query)?
@@ -396,7 +406,7 @@ mod alertmanager {
         let silences: Vec<Silence> = response.json().await?;
 
         for silence in silences {
-            let response = Client::default()
+            let response = new_http_client()
                 .delete(format!(
                     "http://alertmanager:9093/api/v2/silence/{}",
                     silence.id
