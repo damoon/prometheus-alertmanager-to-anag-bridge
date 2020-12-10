@@ -411,13 +411,12 @@ mod alertmanager {
                 continue;
             }
 
-            let response = new_http_client()
-                .delete(format!(
-                    "http://alertmanager:9093/api/v2/silence/{}",
-                    silence.id
-                ))
-                .send()
-                .await?;
+            use percent_encoding::{utf8_percent_encode, AsciiSet, CONTROLS};
+            const QUERY: &AsciiSet = &CONTROLS.add(b' ').add(b'"').add(b'#').add(b'<').add(b'>');
+            let encoded_name = utf8_percent_encode(silence.id.as_str(), QUERY);
+            let url = format!("http://alertmanager:9093/api/v2/silence/{}", encoded_name);
+
+            let response = new_http_client().delete(url).send().await?;
 
             if !response.status().is_success() {
                 return Err(Error::BadStatus(response.status()));

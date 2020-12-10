@@ -1152,6 +1152,7 @@ dependencies = [
  "chrono",
  "env_logger",
  "http",
+ "percent-encoding",
  "serde",
  "serde_urlencoded",
  "thiserror",
