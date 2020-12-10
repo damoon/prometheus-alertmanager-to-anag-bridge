@@ -387,6 +387,7 @@ mod alertmanager {
     #[derive(Deserialize)]
     pub struct Silence {
         pub id: String,
+        pub status: Status,
     }
 
     pub async fn remove_ack(name: String) -> Result<(), Error> {
@@ -406,6 +407,10 @@ mod alertmanager {
         let silences: Vec<Silence> = response.json().await?;
 
         for silence in silences {
+            if silence.status.state != "active".to_string() {
+                continue;
+            }
+
             let response = new_http_client()
                 .delete(format!(
                     "http://alertmanager:9093/api/v2/silence/{}",
