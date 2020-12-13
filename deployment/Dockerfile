@@ -15,6 +15,7 @@ FROM rust:1.48.0-slim-buster as dev
 WORKDIR /app
 RUN cargo install cargo-watch
 COPY --from=cacher /app/target target
+ENV RUST_LOG debug
 COPY . .
 CMD ["cargo", "watch", "-x", "run"]
 
@@ -24,5 +25,6 @@ COPY . .
 RUN cargo build --release
 
 FROM debian:buster-slim AS prod
+ENV RUST_LOG warn
 COPY --from=prod-build /app/target/release/patab /usr/local/bin/patab
 CMD ["patab"]

@@ -27,6 +27,7 @@ if os.environ.get('PROD', '') ==  '':
     sync('Cargo.toml', '/app/Cargo.toml'),
     sync('Cargo.lock', '/app/Cargo.lock'),
     sync('src',        '/app/src'),
+    sync('patam.toml', '/app/patam.toml'),
   ]
 
 docker_build(
@@ -38,6 +39,7 @@ docker_build(
   only=[ 'Cargo.toml'
        , 'Cargo.lock'
        , 'src'
+       , 'patam.toml'
   ],
   live_update=live_update,
 )

@@ -4,17 +4,53 @@ extern crate env_logger;
 
 use actix_web::middleware::Logger;
 use actix_web::{get, post, web, App, HttpResponse, HttpServer, Result};
+use clap::Arg;
+use config;
 
 mod alertmanager;
 
 #[actix_web::main]
 async fn main() -> std::io::Result<()> {
-    std::env::set_var("RUST_LOG", "info");
-    std::env::set_var("RUST_BACKTRACE", "1");
     env_logger::init();
 
     HttpServer::new(|| {
+        let matches = clap::App::new("Patab - Prometheus alertmanager to Anag bridge")
+            .version("0.0.1")
+            .author("David Sauer <davedamoon@gmail.com>")
+            .about("Creates a Nagios endpoints and proxies requests to Prometheus alertmanager.")
+            .arg(
+                Arg::with_name("config")
+                    .short("c")
+                    .long("config")
+                    .value_name("FILE")
+                    .help("Set config file.")
+                    .default_value("patam.toml")
+                    .env("PATAM_CONFIG")
+                    .takes_value(true),
+            )
+            .get_matches();
+        let config = matches.value_of("config").unwrap();
+        let mut settings = config::Config::default();
+        settings
+            .merge(config::File::with_name(config))
+            .expect("unable to read config");
+
+        let endpoint = settings.get_str("endpoint").expect("endpoint is missing");
+        let username = match settings.get_str("username") {
+            Err(config::ConfigError::NotFound(_)) => None,
+            Err(v) => panic!(v),
+            Ok(v) => Some(v),
+        };
+        let password = match settings.get_str("password") {
+            Err(config::ConfigError::NotFound(_)) => None,
+            Err(v) => panic!(v),
+            Ok(v) => Some(v),
+        };
+
         App::new()
+            .data(AppState {
+                client: alertmanager::new(endpoint, username, password),
+            })
             .wrap(Logger::default())
             .service(servicedetail)
             .service(cmd)
@@ -26,14 +62,21 @@ async fn main() -> std::io::Result<()> {
     .await
 }
 
+struct AppState {
+    client: alertmanager::Alertmanager,
+}
+
 impl actix_web::ResponseError for alertmanager::Error {}
 
 #[get("/nagios/cgi-bin/status.cgi")]
-async fn servicedetail(info: web::Query<DetailsRequest>) -> Result<HttpResponse> {
+async fn servicedetail(
+    data: web::Data<AppState>,
+    info: web::Query<DetailsRequest>,
+) -> Result<HttpResponse> {
     let mut services = Vec::<ServiceStatus>::new();
 
     if info.style == "servicedetail" {
-        let alerts = alertmanager::alerts().await?;
+        let alerts = &data.client.alerts().await?;
 
         services = alerts
             .iter()
@@ -107,12 +150,13 @@ fn new_service_status<'a>(
 }
 
 #[post("/nagios/cgi-bin/cmd.cgi")]
-async fn cmd(form: web::Form<AckCmd>) -> Result<HttpResponse> {
+async fn cmd(data: web::Data<AppState>, form: web::Form<AckCmd>) -> Result<HttpResponse> {
     match form.cmd_typ {
         34 => {
             let service = form.service.clone();
             let comment = form.com_data.clone().expect("comment missing");
-            alertmanager::ack(service, comment).await?;
+
+            &data.client.ack(service, comment).await?;
 
             Ok(HttpResponse::Ok().body(
                 "Your command requests were successfully submitted to Icinga for processing.",
@@ -121,7 +165,7 @@ async fn cmd(form: web::Form<AckCmd>) -> Result<HttpResponse> {
 
         52 => {
             let service = form.service.clone();
-            alertmanager::remove_ack(service).await?;
+            &data.client.remove_ack(service).await?;
 
             Ok(HttpResponse::Ok().body(
                 "Your command requests were successfully submitted to Icinga for processing.",

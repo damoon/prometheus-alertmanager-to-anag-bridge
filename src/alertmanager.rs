@@ -1,91 +1,144 @@
-use actix_web::client::{Client, JsonPayloadError, SendRequestError};
+use std::ops::Add;
+
+use actix_web::client::{Client, ClientRequest, JsonPayloadError, SendRequestError};
 use chrono::{DateTime, Duration, Utc};
 use http::StatusCode;
-use std::ops::Add;
 use thiserror::Error;
 
-pub async fn alerts() -> Result<Vec<Alert>, Error> {
-    let mut response = new_http_client()
-        .get("http://alertmanager:9093/api/v2/alerts")
-        .header("Content-Type", "application/json")
-        .send()
-        .await?;
+use percent_encoding::{utf8_percent_encode, AsciiSet, CONTROLS};
+const QUERY: &AsciiSet = &CONTROLS.add(b' ').add(b'"').add(b'#').add(b'<').add(b'>');
 
-    if !response.status().is_success() {
-        return Err(Error::BadStatus(response.status()));
+pub fn new(endpoint: String, user: Option<String>, pass: Option<String>) -> Alertmanager {
+    Alertmanager {
+        endpoint: endpoint,
+        auth: match (user, pass) {
+            (Some(u), Some(p)) => Some((u, p)),
+            _ => None,
+        },
     }
-
-    let alerts: Vec<Alert> = response.json().await?;
-
-    Ok(alerts)
 }
 
-pub async fn ack(name: String, comment: String) -> Result<(), Error> {
-    let mut matchers = Vec::<Matcher>::new();
-    matchers.push(Matcher {
-        name: "alertname".to_string(),
-        value: name,
-        is_regex: false,
-    });
-
-    let starts_at: DateTime<Utc> = Utc::now();
-    let ends_at = starts_at.add(Duration::days(1));
-
-    let ack = Acknowledge {
-        matchers,
-        created_by: "anag-bridge",
-        comment: comment,
-        ends_at: ends_at.to_rfc3339(),
-        starts_at: starts_at.to_rfc3339(),
-    };
-
-    let response = new_http_client()
-        .post("http://alertmanager:9093/api/v2/silences")
-        .header("Content-Type", "application/json")
-        .send_json(&ack)
-        .await?;
-
-    if !response.status().is_success() {
-        return Err(Error::BadStatus(response.status()));
-    }
-
-    Ok(())
+pub struct Alertmanager {
+    endpoint: String,
+    auth: Option<(String, String)>,
 }
 
-pub async fn remove_ack(name: String) -> Result<(), Error> {
-    let query = [("filter", format!("alertname={}", name))];
-
-    let mut response = new_http_client()
-        .get("http://alertmanager:9093/api/v2/silences")
-        .header("Content-Type", "application/json")
-        .query(&query)?
-        .send()
-        .await?;
-
-    if !response.status().is_success() {
-        return Err(Error::BadStatus(response.status()));
+impl Alertmanager {
+    fn client(&self) -> Client {
+        let connector = actix_web::client::Connector::new()
+            .timeout(std::time::Duration::from_secs(10))
+            .finish();
+        let client = actix_web::client::ClientBuilder::new()
+            .connector(connector)
+            .timeout(std::time::Duration::from_secs(10))
+            .finish();
+        client
     }
 
-    let silences: Vec<Silence> = response.json().await?;
-
-    for silence in silences {
-        if silence.status.state != "active".to_string() {
-            continue;
+    fn get(&self, u: &str) -> ClientRequest {
+        let url = format!("{}{}", self.endpoint, u);
+        let request = self
+            .client()
+            .get(url)
+            .header("Content-Type", "application/json");
+        match &self.auth {
+            Some((user, pass)) => request.basic_auth(user, Some(pass.as_str())),
+            _ => request,
         }
+    }
+    fn post(&self, u: &str) -> ClientRequest {
+        let url = format!("{}{}", self.endpoint, u);
+        let request = self
+            .client()
+            .post(url)
+            .header("Content-Type", "application/json");
+        match &self.auth {
+            Some((user, pass)) => request.basic_auth(user, Some(pass.as_str())),
+            _ => request,
+        }
+    }
+    fn delete(&self, u: &str) -> ClientRequest {
+        let url = format!("{}{}", self.endpoint, u);
+        let request = self
+            .client()
+            .delete(url)
+            .header("Content-Type", "application/json");
+        match &self.auth {
+            Some((user, pass)) => request.basic_auth(user, Some(pass.as_str())),
+            _ => request,
+        }
+    }
 
-        use percent_encoding::{utf8_percent_encode, AsciiSet, CONTROLS};
-        const QUERY: &AsciiSet = &CONTROLS.add(b' ').add(b'"').add(b'#').add(b'<').add(b'>');
-        let encoded_name = utf8_percent_encode(silence.id.as_str(), QUERY);
-        let url = format!("http://alertmanager:9093/api/v2/silence/{}", encoded_name);
-
-        let response = new_http_client().delete(url).send().await?;
+    pub async fn alerts(&self) -> Result<Vec<Alert>, Error> {
+        let mut response = self.get("/api/v2/alerts").send().await?;
 
         if !response.status().is_success() {
             return Err(Error::BadStatus(response.status()));
         }
+
+        let alerts: Vec<Alert> = response.json().await?;
+
+        Ok(alerts)
     }
 
-    Ok(())
+    pub async fn ack(&self, name: String, comment: String) -> Result<(), Error> {
+        let mut matchers = Vec::<Matcher>::new();
+        matchers.push(Matcher {
+            name: "alertname".to_string(),
+            value: name,
+            is_regex: false,
+        });
+
+        let starts_at: DateTime<Utc> = Utc::now();
+        let ends_at = starts_at.add(Duration::days(1));
+
+        let ack = Acknowledge {
+            matchers,
+            created_by: "anag-bridge",
+            comment: comment,
+            ends_at: ends_at.to_rfc3339(),
+            starts_at: starts_at.to_rfc3339(),
+        };
+
+        let response = self.post("/api/v2/silences").send_json(&ack).await?;
+
+        if !response.status().is_success() {
+            return Err(Error::BadStatus(response.status()));
+        }
+
+        Ok(())
+    }
+
+    pub async fn remove_ack(&self, name: String) -> Result<(), Error> {
+        // TODO: add filter for state = active
+        let name = utf8_percent_encode(name.as_str(), QUERY);
+        let query = [("filter", format!("alertname={}", name))];
+
+        let mut response = self.get("/api/v2/silences").query(&query)?.send().await?;
+
+        if !response.status().is_success() {
+            return Err(Error::BadStatus(response.status()));
+        }
+
+        let silences: Vec<Silence> = response.json().await?;
+
+        for silence in silences {
+            if silence.status.state != "active".to_string() {
+                continue;
+            }
+
+            let encoded_name = utf8_percent_encode(silence.id.as_str(), QUERY);
+            let url = format!("/api/v2/silence/{}", encoded_name);
+
+            let response = self.delete(url.as_str()).send().await?;
+
+            if !response.status().is_success() {
+                return Err(Error::BadStatus(response.status()));
+            }
+        }
+
+        Ok(())
+    }
 }
 
 impl Alert {
@@ -128,16 +181,6 @@ impl Alert {
     pub fn select_acknowledged<'a>(&'a self) -> bool {
         self.status.state == "suppressed"
     }
-}
-
-fn new_http_client() -> Client {
-    let connector = actix_web::client::Connector::new()
-        .timeout(std::time::Duration::from_secs(10))
-        .finish();
-    actix_web::client::ClientBuilder::new()
-        .connector(connector)
-        .timeout(std::time::Duration::from_secs(10))
-        .finish()
 }
 
 #[derive(Deserialize, Debug)]
