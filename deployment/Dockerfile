@@ -15,7 +15,7 @@ FROM rust:1.48.0-slim-buster as dev
 WORKDIR /app
 RUN cargo install cargo-watch
 COPY --from=cacher /app/target target
-ENV RUST_LOG debug
+ENV RUST_LOG info
 COPY . .
 CMD ["cargo", "watch", "-x", "run"]
 
