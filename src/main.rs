@@ -14,42 +14,10 @@ async fn main() -> std::io::Result<()> {
     env_logger::init();
 
     HttpServer::new(|| {
-        let matches = clap::App::new("Patab - Prometheus alertmanager to Anag bridge")
-            .version("0.0.1")
-            .author("David Sauer <davedamoon@gmail.com>")
-            .about("Creates a Nagios endpoints and proxies requests to Prometheus alertmanager.")
-            .arg(
-                Arg::with_name("config")
-                    .short("c")
-                    .long("config")
-                    .value_name("FILE")
-                    .help("Set config file.")
-                    .default_value("patam.toml")
-                    .env("PATAM_CONFIG")
-                    .takes_value(true),
-            )
-            .get_matches();
-        let config = matches.value_of("config").unwrap();
-        let mut settings = config::Config::default();
-        settings
-            .merge(config::File::with_name(config))
-            .expect("unable to read config");
-
-        let endpoint = settings.get_str("endpoint").expect("endpoint is missing");
-        let username = match settings.get_str("username") {
-            Err(config::ConfigError::NotFound(_)) => None,
-            Err(v) => panic!(v),
-            Ok(v) => Some(v),
-        };
-        let password = match settings.get_str("password") {
-            Err(config::ConfigError::NotFound(_)) => None,
-            Err(v) => panic!(v),
-            Ok(v) => Some(v),
-        };
-
+        let cfg = load_config();
         App::new()
             .data(AppState {
-                client: alertmanager::new(endpoint, username, password),
+                client: alertmanager::new(cfg.endpoint, cfg.username, cfg.password),
             })
             .wrap(Logger::default())
             .service(servicedetail)
@@ -60,6 +28,53 @@ async fn main() -> std::io::Result<()> {
     .bind("0.0.0.0:8080")?
     .run()
     .await
+}
+
+struct Config {
+    endpoint: String,
+    username: Option<String>,
+    password: Option<String>,
+}
+
+fn load_config() -> Config {
+    let matches = clap::App::new("Patab - Prometheus alertmanager to Anag bridge")
+        .version("0.0.1")
+        .author("David Sauer <davedamoon@gmail.com>")
+        .about("Creates a Nagios endpoints and proxies requests to Prometheus alertmanager.")
+        .arg(
+            Arg::with_name("config")
+                .short("c")
+                .long("config")
+                .value_name("FILE")
+                .help("Set config file.")
+                .default_value("patam.toml")
+                .env("PATAM_CONFIG")
+                .takes_value(true),
+        )
+        .get_matches();
+    let config = matches.value_of("config").unwrap();
+    let mut settings = config::Config::default();
+    settings
+        .merge(config::File::with_name(config))
+        .expect("unable to read config");
+
+    let endpoint = settings.get_str("endpoint").expect("endpoint is missing");
+    let username = match settings.get_str("username") {
+        Err(config::ConfigError::NotFound(_)) => None,
+        Err(v) => panic!(v),
+        Ok(v) => Some(v),
+    };
+    let password = match settings.get_str("password") {
+        Err(config::ConfigError::NotFound(_)) => None,
+        Err(v) => panic!(v),
+        Ok(v) => Some(v),
+    };
+
+    Config {
+        endpoint,
+        username,
+        password,
+    }
 }
 
 struct AppState {
