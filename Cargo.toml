@@ -9,7 +9,7 @@ edition = "2018"
 [dependencies]
 actix-web = "3.3.2"
 actix-files = "0.4.1"
-env_logger = "0.8.2"
+env_logger = "0.11.0"
 serde = "1.0.118"
 http = "0.2.1"
 thiserror = "1.0.22"
