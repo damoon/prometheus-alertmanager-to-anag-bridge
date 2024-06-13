@@ -1,5 +1,5 @@
 ###################################################
-FROM rust:1.48.0-slim-buster as cargo-chef
+FROM rust:1.79.0-slim-buster as cargo-chef
 WORKDIR /app
 RUN cargo install cargo-chef
 
@@ -11,7 +11,7 @@ FROM cargo-chef as cacher
 COPY --from=planner /app/recipe.json recipe.json
 RUN cargo chef cook --recipe-path recipe.json
 
-FROM rust:1.48.0-slim-buster as dev
+FROM rust:1.79.0-slim-buster as dev
 WORKDIR /app
 RUN cargo install cargo-watch
 COPY --from=cacher /app/target target
@@ -20,7 +20,7 @@ COPY . .
 CMD ["cargo", "watch", "-x", "run"]
 
 ###################################################
-FROM rust:1.48.0-slim-buster AS prod-builder
+FROM rust:1.79.0-slim-buster AS prod-builder
 COPY . .
 RUN cargo build --release
 
